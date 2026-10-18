@@ -1,0 +1,112 @@
+-- =======================================================
+-- FIXED PC & MOBILE ULTRA-CONTROL AIR SLIDE FOR RIVALS
+-- =======================================================
+-- Snaps you down instantly when the slide ends and fixes control bugs.
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+-- Configuration Parameters (Tuned for maximum steering control)
+local SLIDE_LIFESPAN = 0.40       -- Precise time window matching the game's slide animation
+local FLOOR_HEIGHT_OFFSET = -3.08 -- Micro-adjusted layout depth to completely lock camera shaking
+local STOP_VELOCITY_LIMIT = 4     -- Instantly forces gravity if you lose forward speed
+
+local activeFloorInstance = nil
+local isSlideActive = false
+
+-- Function to completely wipe physics tracking and force immediate gravity drop
+local function forceInstantDrop()
+    isSlideActive = false
+    if activeFloorInstance then
+        activeFloorInstance:Destroy()
+        activeFloorInstance = nil
+    end
+    -- Forces the game engine to instantly apply falling physics instead of floating
+    local character = LocalPlayer.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+    end
+end
+
+-- Stable platform rendering loop
+local function deploySlidePlatform(rootPart)
+    if activeFloorInstance then activeFloorInstance:Destroy() end
+    
+    local airPlatform = Instance.new("Part")
+    airPlatform.Name = "RivalsPerfectControlFloor"
+    airPlatform.Size = Vector3.new(12, 0.2, 12) -- Wide tracking zone so steering never slips off
+    airPlatform.Anchored = true
+    airPlatform.CanCollide = true
+    airPlatform.Transparency = 1 -- Invisible
+    airPlatform.Material = Enum.Material.SmoothPlastic
+    airPlatform.Friction = 0 -- Absolutely zero drag for perfect, fluid WASD control/steering
+    airPlatform.Parent = workspace
+    
+    activeFloorInstance = airPlatform
+    
+    local renderConnection
+    renderConnection = RunService.PreRender:Connect(function()
+        -- ANTI-HOVER SAFETY: Instantly snaps you down if you hit a wall or stop moving entirely
+        if rootPart and rootPart.Parent then
+            local velocityXZ = Vector3.new(rootPart.AssemblyLinearVelocity.X, 0, rootPart.AssemblyLinearVelocity.Z).Magnitude
+            if velocityXZ < STOP_VELOCITY_LIMIT then
+                if renderConnection then renderConnection:Disconnect() end
+                forceInstantDrop()
+                return
+            end
+        end
+
+        if not isSlideActive or not rootPart or not rootPart.Parent or activeFloorInstance ~= airPlatform then
+            if renderConnection then renderConnection:Disconnect() end
+            if airPlatform.Parent then airPlatform:Destroy() end
+            return
+        end
+        
+        -- Lock placement coordinates directly beneath player space frame-by-frame
+        airPlatform.CFrame = rootPart.CFrame * CFrame.new(0, FLOOR_HEIGHT_OFFSET, 0)
+    end)
+end
+
+-- Core processing engine
+local function executeAirSlide()
+    local character = LocalPlayer.Character
+    local rootPart = character and character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    
+    if not rootPart or not humanoid or isSlideActive then return end
+    
+    -- Strict mid-air checking state rule
+    if humanoid.FloorMaterial == Enum.Material.Air then
+        isSlideActive = true
+        
+        deploySlidePlatform(rootPart)
+        
+        -- Tracks the lifespan of the slide frame tightly
+        local timeElapsed = 0
+        while isSlideActive and timeElapsed < SLIDE_LIFESPAN do
+            task.wait(0.01)
+            timeElapsed = timeElapsed + 0.01
+        end
+        
+        -- Wipe out assets instantly to cause a sharp, responsive downward drop
+        forceInstantDrop()
+    end
+end
+
+-- Universal Input Mapping Pipeline (PC Keys: L-Ctrl, C, L-Shift | Mobile: Touch Tap buttons)
+UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
+    if input.KeyCode == Enum.KeyCode.LeftControl or input.KeyCode == Enum.KeyCode.C or input.KeyCode == Enum.KeyCode.LeftShift or input.UserInputType == Enum.UserInputType.Touch then
+        
+        task.defer(function()
+            local character = LocalPlayer.Character
+            local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+            
+            if humanoid and humanoid.FloorMaterial == Enum.Material.Air then
+                executeAirSlide()
+            end
+        end)
+    end
+end)
